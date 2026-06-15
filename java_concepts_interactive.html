@@ -420,8 +420,8 @@
     }
 
     /* 자식 노드는 뒤(아래), 챕터 허브는 앞(위) 레이어로 분리한다. */
-    #nodes { position: absolute; inset: 0; z-index: 3; }
-    #hubs { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+    #nodes { position: absolute; inset: 0; z-index: 2; }
+    #hubs { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 
     .hub,
     .node {
@@ -2206,6 +2206,7 @@
         const hub = document.createElement("button");
         hub.className = "hub";
         hub.type = "button";
+        hub.dataset.id = chapter.id;
         hub.style.setProperty("--chapter-color", chapter.color);
         hub.innerHTML = `<span><strong>${chapter.label}</strong><span>${chapter.title}</span></span>`;
         hub.addEventListener("click", () => {
@@ -2220,10 +2221,13 @@
         hubsEl.appendChild(hub);
         hubEls.set(chapter.id, hub);
 
-        // 허브는 고정점이다. 노드가 부딪혀도 흔들리거나 튕기지 않도록 정적 바디로 둔다.
+        // 허브도 사용자가 끌 수 있는 동적 바디다. 노드 힘에는 반응하지 않고 드래그 좌표로만 움직인다.
         const body = Bodies.circle(stage.clientWidth / 2, stage.clientHeight / 2, HUB_RADIUS, {
-          isStatic: true,
+          isStatic: false,
+          frictionAir: 0.45,
           restitution: 0,
+          friction: 0,
+          density: 0.01,
           collisionFilter: { group: -1 }
         });
         physicsHubs.set(chapter.id, body);
@@ -2494,9 +2498,9 @@
     const HOME_ACC = 0.00032;   // 제자리로 당기는 스프링 가속도(거리에 비례)
     const HOME_ACC_MAX = 0.13;  // 멀리 있을 때 가속도 상한(폭주 방지)
     const MAX_SPEED = 18;       // 노드 최대 속도(폭주·떨림 안전장치)
-    const HUB_CLEARANCE = HUB_RADIUS + NODE_HALF_W + 8; // 허브가 노드 클릭 중심을 덮지 않게 한다.
-    const HUB_REPULSE_ACC = 0.11; // 허브 영역에서 노드를 밀어내는 가속도(홈 끌림보다 우세하게)
-    const baseRadius = () => (layout === "scatter" ? 170 : 98);
+    const HUB_CLEARANCE = HUB_RADIUS + NODE_HALF_W + 30; // 허브가 노드 클릭 중심을 덮지 않게 한다.
+    const HUB_REPULSE_ACC = 0.16; // 허브 영역에서 노드를 밀어내는 가속도(홈 끌림보다 우세하게)
+    const baseRadius = () => (layout === "scatter" ? 205 : 132);
 
     function applySoftForces() {
       const list = [];
@@ -2700,7 +2704,12 @@
 
     stage.addEventListener("click", (event) => {
       if (mode !== "map") return;
-      if (event.target.closest(".hub")) return;
+      const targetHub = event.target.closest(".hub");
+      if (targetHub && shouldSuppressClick(targetHub.dataset.id, "hub")) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
 
       const targetNode = event.target.closest(".node");
       if (targetNode && shouldSuppressClick(targetNode.dataset.id, "node")) {
@@ -2761,6 +2770,8 @@
         const hubBody = physicsHubs.get(dragId);
         if (hubBody) {
           Body.setPosition(hubBody, clampGraphPoint(wp.x, wp.y, HUB_RADIUS, HUB_RADIUS));
+          Body.setVelocity(hubBody, { x: 0, y: 0 });
+          Body.setAngularVelocity(hubBody, 0);
         }
       } else if (dragConstraint) {
         Matter.Body.setPosition(mouseBody, wp);
@@ -2790,6 +2801,14 @@
           pinnedNodes.add(dragId);
           selectedId = dragId;
           render();
+        } else if (dragKind === "hub") {
+          const body = physicsHubs.get(dragId);
+          if (body) {
+            clampBodyToGraph(body, HUB_RADIUS, HUB_RADIUS);
+            Body.setVelocity(body, { x: 0, y: 0 });
+            Body.setAngularVelocity(body, 0);
+          }
+          wakeNodes();
         }
       }
       dragging = null;
